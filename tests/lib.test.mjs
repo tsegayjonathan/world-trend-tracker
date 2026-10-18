@@ -42,6 +42,8 @@ test("'vs 1 yr ago' for daily and weekly data stays within a week of a year back
   assert.equal(yearAgoPoint([day("2025-10-15", 1), day("2026-10-16", 2)], "daily").value, 1);
   assert.equal(yearAgoPoint([day("2025-10-01", 1), day("2026-10-16", 2)], "weekly"), null); // 380 days back
   assert.equal(yearAgoPoint([day("2025-10-19", 1), day("2026-10-17", 2)], "daily").value, 1); // a coin year starting 2 days short
+  const mondays = [day("2025-10-06", 1), day("2025-10-13", 2), day("2025-10-20", 3), day("2026-10-12", 4)];
+  assert.equal(yearAgoPoint(mondays, "weekly").date, "2025-10-13"); // 52 weeks back, not 53
 });
 
 test("annualized3m turns a 1% rise over 3 months into about 4% a year", () => {
@@ -137,6 +139,14 @@ test("low and falling inflation is not 'near the goal'", () => {
   assert.match(card.text, /below its 2% goal/);
 });
 
+test("unemployment wording and label use the change as the tile rounds it", () => {
+  const s = statusFor({ id: "UNRATE", fmt: "pct" }, { value: 4.2, change1y: -0.25 });
+  assert.match(s.text, /down 0\.3 pts/);
+  const up = statusFor({ id: "UNRATE", fmt: "pct" }, { value: 4.6, change1y: 0.19999999999999 });
+  assert.equal(up.label, "Edging up");
+  assert.match(up.text, /up 0\.2 pts/);
+});
+
 test("Sahm rule triggers at 0.5 and reads sensibly below zero", () => {
   const meta = { id: "SAHMREALTIME" };
   assert.equal(statusFor(meta, { value: 0.1 }).level, "good");
@@ -220,6 +230,7 @@ test("topics come from the headline, not side mentions in the summary", () => {
   assert.deepEqual(topicsFor("Most homes lost in black summer bushfires were near bush"), ["Energy & climate"]);
   assert.deepEqual(topicsFor("Water-bombing helicopters battle bushfire near Sydney"), ["Energy & climate"]);
   assert.deepEqual(topicsFor("Heavy fighting for control of Pokrovsk"), ["Conflict"]);
+  assert.deepEqual(topicsFor("Man fighting for his life after crash"), ["World"]);
   assert.deepEqual(topicsFor("Bomb threat at airport"), ["Conflict"]);
 });
 

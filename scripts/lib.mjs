@@ -27,8 +27,8 @@ export function yoy(obs) {
 
 // The reading to compare with for "vs 1 yr ago". Monthly and quarterly numbers use the same month
 // a year earlier; if that one month was never published, it is estimated as the midpoint of the
-// months either side and flagged est. Daily and weekly numbers use the last reading at most a week
-// before the date a year back (or the first reading, when the history starts up to 3 days short).
+// months either side and flagged est. Daily and weekly numbers use the reading nearest the date a
+// year back (52 weeks for weekly data), if one is within 4 days of it.
 export function yearAgoPoint(obs, freq) {
   const latest = obs.at(-1);
   if (freq === "monthly" || freq === "quarterly") {
@@ -38,10 +38,13 @@ export function yearAgoPoint(obs, freq) {
     const a = byMonth.get(target - 1), b = byMonth.get(target + 1);
     return freq === "monthly" && a && b ? { date: `${monthKey(target)}-01`, value: (a.value + b.value) / 2, est: monthKey(target) } : null;
   }
-  const daysBack = (o) => (Date.parse(latest.date) - Date.parse(o.date)) / DAY;
-  const at = valueAtOrBefore(obs, isoDaysAgo(365, Date.parse(latest.date)));
-  if (at) return daysBack(at) <= 372 ? at : null;
-  return daysBack(obs[0]) >= 362 ? obs[0] : null;
+  const target = Date.parse(latest.date) - 365 * DAY;
+  let best = null, off = Infinity;
+  for (const o of obs) {
+    const d = Math.abs(Date.parse(o.date) - target);
+    if (d < off) { best = o; off = d; }
+  }
+  return off <= 4 * DAY ? best : null;
 }
 
 // Inflation pace over the 3 months up to endDate, expressed as a yearly rate. Catches turns that
@@ -216,8 +219,8 @@ export const RULES = {
   },
 
   UNRATE(s) {
-    // Rounded as shown, so "up 0.2 pts" and the label always agree.
-    const d = s.change1y == null ? null : Math.round(s.change1y * 10) / 10;
+    // Rounded the way the tile shows it (halves away from zero), so the label and text always agree.
+    const d = s.change1y == null ? null : Number(s.change1y.toFixed(1));
     const level = d != null && d >= 0.5 ? "alert" : d != null && d >= 0.2 ? "watch" : "good";
     const label = level === "alert" ? "Rising fast" : level === "watch" ? "Edging up" : "Steady";
     const yr = d == null ? "" : ` That's ${d > 0 ? "up" : d < 0 ? "down" : "unchanged"}${d ? ` ${Math.abs(d).toFixed(1)} pts` : ""} from a year ago.`;
@@ -402,7 +405,7 @@ export function similar(a, b) {
 }
 
 const TOPICS = [
-  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|(?<!water[- ]?)bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting(?! for (?:justice|their lives|survival|(?:their |civil |human )?rights)\b))\b/i],
+  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|(?<!water[- ]?)bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting(?! for\b)|fighting for (?:control|territory)\b)\b/i],
   ["Economy", /\b(econom\w*|inflation|interest rates?|the fed|federal reserve|central bank|tariffs?|trade|markets?|stocks?|shares|prices?|jobs|unemployment|gdp|recession|(?<!west )banks?|banking|debt|budget|tax\w*|dollar|currenc\w*|investors?|compan\w*|business\w*|imports?|exports?)\b/i],
   ["Energy & climate", /\b(climate|energy|oil|gas|opec|tankers?|deforestation|emissions?|heatwaves?|wildfires?|bushfires?|floods?|flooding|storms?|hurricanes?|typhoons?|cyclones?|drought|earthquakes?|solar|nuclear|weather|power cuts?)\b/i],
   ["Politics", /\b(elections?|votes?|voters?|president|prime minister|parliament|congress|senate|ministers?|government|courts?|judges?|laws?|protests?|protesters|polic(y|ies)|campaign|party|sanctions?|diplomat\w*|summit|white house)\b/i],
