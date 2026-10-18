@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   yoy, annualized3m, percentileRank, frequencyOf, moveZScore, statusFor, buildSummary,
-  topicsFor, clusterNews, downsample, changeBetween, oddsRow, chooseOdds,
+  topicsFor, clusterNews, downsample, changeBetween, oddsRow, chooseOdds, keywords,
 } from "../scripts/lib.mjs";
 
 const monthly = (values, start = 2020) =>
@@ -212,6 +212,12 @@ test("'West Bank' is not about banks", () => {
   assert.deepEqual(topicsFor("Israeli settlers attack European diplomats in the occupied West Bank"), ["Conflict", "Politics"]);
   assert.deepEqual(topicsFor("World Bank cuts growth forecast"), ["Economy"]);
   assert.deepEqual(topicsFor("Palestinian killed in West Bank raid"), ["Conflict"]);
+});
+
+test("plurals reduce to the singular", () => {
+  const k = (t) => [...keywords(t)].join(" ");
+  assert.equal(k("strikes prices cities clashes taxes witnesses across"), "strike price city clash tax witness across");
+  assert.equal(k("strike price city clash tax witness"), "strike price city clash tax witness");
 });
 
 test("singular and plural headlines of one story match; generic shared words don't", () => {

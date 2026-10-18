@@ -357,8 +357,9 @@ export function chooseOdds(rows, topics, max) {
 const STOP = new Set("a an the and or of to in on at for from with by as is are was were be been it its this that after over into says say said amid new how why what who will can could would may more than about up out not no".split(" "));
 
 const words = (title) => title.replace(/[‘’']/g, "").replace(/[^A-Za-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
-// Plural to singular so "strike" and "strikes", "price" and "prices" match ("across" stays).
-const stem = (w) => w.toLowerCase().replace(/ies$/, "y").replace(/(?<!s)s$/, "");
+// Plural to singular: strikes/strike, prices/price, cities/city, clashes/clash, taxes/tax.
+// A double "s" stays ("across", "witness").
+const stem = (w) => w.toLowerCase().replace(/ies$/, "y").replace(/(?<=(?:ss|sh|ch|x|z))es$/, "").replace(/(?<!s)s$/, "");
 
 export function keywords(title) {
   return new Set(words(title).map(w => w.toLowerCase()).filter(w => w.length > 2 && !STOP.has(w)).map(stem));
