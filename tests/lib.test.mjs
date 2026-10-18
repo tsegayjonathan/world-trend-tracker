@@ -203,3 +203,18 @@ test("the same story from two outlets is grouped; different stories are not", ()
   assert.equal(c.length, 2);
   assert.equal(c[0].sources.size, 2);
 });
+
+test("'West Bank' is not about banks", () => {
+  assert.deepEqual(topicsFor("Israeli settlers attack European diplomats in the occupied West Bank"), ["Conflict", "Politics"]);
+  assert.deepEqual(topicsFor("World Bank cuts growth forecast"), ["Economy"]);
+});
+
+test("singular and plural headlines of one story match; generic shared words don't", () => {
+  const same = (a, b, source2 = "BBC") => clusterNews([{ title: a, source: "NPR" }, { title: b, source: source2 }]).length === 1;
+  assert.ok(same("Nurses strike over pay in New Zealand", "New Zealand nurse strikes over pay begin"));
+  assert.ok(same("Fuel prices rise across Nigeria", "Nigeria fuel price rises again"));
+  assert.ok(!same(
+    "Buildings set ablaze and more than 1,200 arrested as police clash with protesters across France",
+    "Protesters allege police brutality as violent clashes rage on in Albania",
+  ));
+});

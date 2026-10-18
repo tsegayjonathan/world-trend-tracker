@@ -360,20 +360,24 @@ export function keywords(title) {
   return new Set(
     title.toLowerCase().replace(/[‘’']/g, "").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
       .filter(w => w.length > 2 && !STOP.has(w))
-      .map(w => w.replace(/(ies|es|s)$/, ""))
+      // Plural to singular so "strike" and "strikes", "price" and "prices" match ("across" stays).
+      .map(w => w.replace(/ies$/, "y").replace(/(?<!s)s$/, ""))
   );
 }
 
+// Same story? Enough shared words, and a big enough share of all the words: three generic words
+// ("police", "clash", "protesters") alone don't make France and Albania the same story.
 export function similar(a, b) {
   let shared = 0;
   for (const w of a) if (b.has(w)) shared++;
   const union = a.size + b.size - shared;
-  return shared >= 3 || (shared >= 2 && union > 0 && shared / union >= 0.34);
+  if (!union) return false;
+  return (shared >= 3 && shared / union > 0.2) || (shared >= 2 && shared / union >= 0.34);
 }
 
 const TOPICS = [
   ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting)\b/i],
-  ["Economy", /\b(econom\w*|inflation|interest rates?|the fed|federal reserve|central bank|tariffs?|trade|markets?|stocks?|shares|prices?|jobs|unemployment|gdp|recession|banks?|banking|debt|budget|tax\w*|dollar|currenc\w*|investors?|compan\w*|business\w*|imports?|exports?)\b/i],
+  ["Economy", /\b(econom\w*|inflation|interest rates?|the fed|federal reserve|central bank|tariffs?|trade|markets?|stocks?|shares|prices?|jobs|unemployment|gdp|recession|(?<!west )banks?|banking|debt|budget|tax\w*|dollar|currenc\w*|investors?|compan\w*|business\w*|imports?|exports?)\b/i],
   ["Energy & climate", /\b(climate|energy|oil|gas|opec|tankers?|deforestation|emissions?|heatwaves?|wildfires?|floods?|flooding|storms?|hurricanes?|typhoons?|cyclones?|drought|earthquakes?|solar|nuclear|weather|power cuts?)\b/i],
   ["Politics", /\b(elections?|votes?|voters?|president|prime minister|parliament|congress|senate|ministers?|government|courts?|judges?|laws?|protests?|protesters|polic(y|ies)|campaign|party|sanctions?|diplomat\w*|summit|white house)\b/i],
   ["Health", /\b(health|virus|outbreaks?|vaccines?|diseases?|hospitals?|cancer|covid|flu|measles|cholera|mpox|ebola|drugs?|medical|doctors?|patients?)\b/i],

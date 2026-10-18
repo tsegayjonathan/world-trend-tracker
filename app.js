@@ -11,6 +11,11 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Links come from outside feeds: only web links may be clickable (no "javascript:" and the like).
+function href(u) {
+  return esc(/^https?:\/\//i.test(String(u ?? "").trim()) ? String(u).trim() : "#");
+}
+
 function store(key, value) {
   try { value === undefined ? localStorage.getItem(key) : localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage blocked: features just don't persist */ }
 }
@@ -34,6 +39,9 @@ function fmtChange(ind, c) {
   const a = Math.abs(c);
   return ind.inPoints ? `${a.toFixed(ind.dp >= 2 ? 2 : 1)} pts` : `${a.toFixed(a < 10 ? 1 : 0)}%`;
 }
+
+// "Flat" means it would round to zero at the precision shown, so no coloured "▲ 0.0".
+const isFlat = (ind, c) => Math.abs(c) < (ind.inPoints && ind.dp >= 2 ? 0.005 : 0.05);
 
 function tone(ind, c) {
   if (!c || ind.direction === "neutral") return "";
@@ -76,7 +84,7 @@ function statusHtml(st) {
 
 function deltaHtml(ind, c, when) {
   if (c == null || !Number.isFinite(c)) return "";
-  const flat = Math.abs(c) < (ind.inPoints ? 0.005 : 0.05);
+  const flat = isFlat(ind, c);
   const arrow = flat ? "■" : c > 0 ? "▲" : "▼";
   const word = flat ? "unchanged" : c > 0 ? "up" : "down";
   return `<span class="delta ${flat ? "" : tone(ind, c)}"><span class="arrow" aria-hidden="true">${arrow}</span><span class="sr">${word}</span>${flat ? "flat" : fmtChange(ind, c)} <span class="when">${when}</span></span>`;
@@ -114,7 +122,10 @@ function chartHtml(ind, i) {
   const last = pts.length - 1;
   const area = `${d}L${g.X(g.xs[last]).toFixed(1)},${g.H}L${g.X(g.xs[0]).toFixed(1)},${g.H}Z`;
   const refs = (ind.refs || []).map((r) => `<line class="ref" x1="0" x2="${g.W}" y1="${g.Y(r.value).toFixed(1)}" y2="${g.Y(r.value).toFixed(1)}" vector-effect="non-scaling-stroke"/>`).join("");
-  const refLabels = (ind.refs || []).map((r) => `<span class="ref-label" style="top:${((g.Y(r.value) / g.H) * 100).toFixed(1)}%">${esc(r.label)}</span>`).join("");
+  const refLabels = (ind.refs || []).map((r) => {
+    const top = g.Y(r.value) / g.H;
+    return `<span class="ref-label${top < 0.25 ? " below" : ""}" style="top:${(top * 100).toFixed(1)}%">${esc(r.label)}</span>`;
+  }).join("");
   const lo = Math.min(...g.ys), hi = Math.max(...g.ys);
   const shortRange = range > 1 && ind.baselineYears < range ? ` (only ${ind.baselineYears} yr available)` : "";
   return `<div class="chart">
@@ -177,7 +188,7 @@ function tileHtml(ind, i) {
     ${chartHtml(ind, i)}
     <p class="reading">${esc(ind.status?.text || "")}</p>
     <div class="tile-foot"><span>Data for ${esc(fmtDate(ind.date, m))}${delayed ? " · " : ""}${delayed}</span><span>${next}</span></div>
-    <details><summary>What it means</summary><p class="about">${esc(ind.about)} <a href="${esc(ind.link)}" target="_blank" rel="noopener">Source</a></p></details>
+    <details><summary>What it means</summary><p class="about">${esc(ind.about)} <a href="${href(ind.link)}" target="_blank" rel="noopener">Source</a></p></details>
   </article>`;
 }
 
@@ -232,10 +243,11 @@ function renderChanges(seen) {
     items.push({ ind, c, statusChanged, newRelease, weight, oldLabel: old.label });
   }
   items.sort((a, b) => b.weight - a.weight);
-  const newNews = DATA.news.filter((n) => n.time && seen.at && n.time > seen.at).length;
+  // Headlines published after the data you last saw was built.
+  const newNews = DATA.news.filter((n) => n.time && seen.dataUpdated && n.time > seen.dataUpdated).length;
   if (!items.length && !newNews) return;
   const lis = items.slice(0, 8).map(({ ind, c, statusChanged, newRelease, oldLabel }) => {
-    const flat = Math.abs(c) < (ind.inPoints ? 0.005 : 0.05);
+    const flat = isFlat(ind, c);
     const move = flat ? "unchanged" : `${c > 0 ? "▲" : "▼"} ${fmtChange(ind, c)}`;
     const extra = statusChanged ? ` · now <b>${esc(ind.status.label)}</b> (was ${esc(oldLabel)})` : newRelease ? " · new release" : "";
     return `<li><a href="#t-${esc(ind.id)}">${esc(ind.name)}</a> <b>${esc(fmtValue(ind, ind.value))}</b> <span class="delta ${flat ? "" : tone(ind, c)}">${move}</span>${extra}</li>`;
@@ -256,7 +268,7 @@ function renderOdds() {
     const runner = o.runnerUp && o.runnerUp.probability >= 0.03
       ? `<div class="runner">Next most likely: ${esc(o.runnerUp.label)} ${Math.round(o.runnerUp.probability * 100)}%</div>` : "";
     return `<li>
-      <a class="q" href="${esc(o.link)}" target="_blank" rel="noopener">${esc(o.title)}</a>
+      <a class="q" href="${href(o.link)}" target="_blank" rel="noopener">${esc(o.title)}</a>
       <div class="ans"><span title="${esc(o.leader)}">${esc(o.leader)}</span><span class="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}" aria-label="${esc(o.leader)} ${p}%"><span style="width:${p}%"></span></span><span class="pct">${p}%</span></div>
       ${runner}
     </li>`;
@@ -270,7 +282,7 @@ function renderTrending() {
   const day = new Date(t.date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
   $("#trending-hint").textContent = `Most-read English Wikipedia articles on ${day}. A sudden spike often means news.`;
   list.innerHTML = t.articles.map((a) =>
-    `<li><a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.title)}</a><span class="views">${Intl.NumberFormat("en-US", { notation: "compact" }).format(a.views)} views</span></li>`
+    `<li><a href="${href(a.link)}" target="_blank" rel="noopener">${esc(a.title)}</a><span class="views">${Intl.NumberFormat("en-US", { notation: "compact" }).format(a.views)} views</span></li>`
   ).join("");
 }
 
@@ -278,15 +290,15 @@ function renderTrending() {
 
 function alsoHtml(n) {
   if (!n.alsoIn?.length) return "";
-  return `Also: ${n.alsoIn.map((a) => `<a href="${esc(a.link)}" target="_blank" rel="noopener" title="${esc(a.title)}">${esc(a.source)}</a>`).join(", ")}`;
+  return `Also: ${n.alsoIn.map((a) => `<a href="${href(a.link)}" target="_blank" rel="noopener" title="${esc(a.title)}">${esc(a.source)}</a>`).join(", ")}`;
 }
 
-function renderNews(seenAt) {
+function renderNews(newAfter) {
   const news = DATA.news || [];
   const top = news.filter((n) => n.coverage > 1).sort((a, b) => b.coverage - a.coverage || (b.time || "").localeCompare(a.time || "")).slice(0, 6);
   $("#top-stories").innerHTML = top.length ? `<h3 class="list-h">Top stories <span class="hint">covered by several outlets</span></h3><div class="top-stories">${top.map((n) => `<article class="story">
       <span class="coverage">${n.coverage} outlets</span><br>
-      <a class="title" href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
+      <a class="title" href="${href(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
       <div class="meta">${esc(n.source)}${n.time ? " · " + esc(ago(n.time)) : ""} · ${esc(n.topics.join(", "))}</div>
       <div class="also">${alsoHtml(n)}</div>
     </article>`).join("")}</div>` : "";
@@ -304,8 +316,8 @@ function renderNews(seenAt) {
     const items = news.filter((n) => (active === "All" || n.topics.includes(active)) && (!q || `${n.title} ${n.summary}`.toLowerCase().includes(q)));
     const shown = items.slice(0, limit);
     $("#news-list").innerHTML = (items.length ? shown.map((n) => `<li>
-        <a class="title" href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
-        <div class="meta">${seenAt && n.time && n.time > seenAt ? '<span class="new">New</span> · ' : ""}${esc(n.source)}${n.time ? " · " + esc(ago(n.time)) : ""} · <span class="tag">${esc(n.topics.join(", "))}</span>${n.alsoIn?.length ? " · " + alsoHtml(n) : ""}</div>
+        <a class="title" href="${href(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
+        <div class="meta">${newAfter && n.time && n.time > newAfter ? '<span class="new">New</span> · ' : ""}${esc(n.source)}${n.time ? " · " + esc(ago(n.time)) : ""} · <span class="tag">${esc(n.topics.join(", "))}</span>${n.alsoIn?.length ? " · " + alsoHtml(n) : ""}</div>
         ${n.summary ? `<p class="summary">${esc(n.summary)}</p>` : ""}
       </li>`).join("") : `<li class="hint">No headlines match.</li>`)
       + (items.length > limit ? `<li><button class="chip more" type="button">Show ${items.length - limit} more</button></li>` : "");
@@ -340,24 +352,44 @@ async function main() {
   $("#updated").innerHTML = `Updated ${esc(ago(DATA.updated))} · refreshes hourly${delayed ? ` · <span class="warn">${delayed} number${delayed === 1 ? "" : "s"} delayed</span>` : ""}`;
   $("#updated").title = new Date(DATA.updated).toLocaleString();
 
-  const seen = load(SEEN_KEY);
+  const seen = visitBaseline();
+  keepClearOfHeader();
   setupRange();
   renderPulse();
   renderChanges(seen);
   renderIndicators();
-  renderNews(seen && seen.at);
+  renderNews(seen && seen.dataUpdated);
   renderOdds();
   renderTrending();
   addEventListener("scroll", () => { $("#tip").hidden = true; }, { passive: true });
+}
 
-  // Move the "last visit" marker forward only when there's new data, so a quick reload keeps the banner.
-  if (!seen || seen.dataUpdated !== DATA.updated) {
-    store(SEEN_KEY, {
-      at: new Date().toISOString(),
-      dataUpdated: DATA.updated,
-      values: Object.fromEntries(DATA.indicators.map((i) => [i.id, { value: i.value, date: i.date, label: i.status?.label }])),
-    });
-  }
+// "Since your last visit" compares with the data you saw before this data arrived. Two snapshots are
+// kept: `current` (what you saw most recently) and `base` (what you saw before that). The base only
+// moves when new data arrives, so reloading the page keeps the banner and the "New" badges.
+function visitBaseline() {
+  const saved = load(SEEN_KEY);
+  let state = saved?.current ? saved : { base: null, current: saved?.values ? saved : null };
+  const now = {
+    at: new Date().toISOString(),
+    dataUpdated: DATA.updated,
+    values: Object.fromEntries(DATA.indicators.map((i) => [i.id, { value: i.value, date: i.date, label: i.status?.label }])),
+  };
+  if (!state.current) state = { base: null, current: now };
+  else if (state.current.dataUpdated !== DATA.updated) state = { base: state.current, current: now };
+  else state.current.at = now.at;
+  store(SEEN_KEY, state);
+  return state.base;
+}
+
+// Jump links and summary cards scroll their target just below the sticky header, whose height
+// changes when it wraps on a phone.
+function keepClearOfHeader() {
+  const header = document.querySelector(".top");
+  const set = () => document.documentElement.style.setProperty("--header-h", `${header.offsetHeight}px`);
+  set();
+  if ("ResizeObserver" in window) new ResizeObserver(set).observe(header);
+  else addEventListener("resize", set);
 }
 
 main();

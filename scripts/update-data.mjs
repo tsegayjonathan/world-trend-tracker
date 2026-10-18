@@ -267,24 +267,36 @@ function tag(item, name) {
   return m ? decode(m[1]) : "";
 }
 
+// Some feeds (The Guardian) put the standfirst, related links and the article body in one
+// description as HTML. The first paragraph is the summary.
+function summaryOf(item) {
+  const raw = item.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1] || "";
+  const html = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  return decode(html.match(/<p>([\s\S]*?)<\/p>/i)?.[1] ?? html);
+}
+
 async function news(previous) {
   const all = [];
   for (const feed of FEEDS) {
     try {
       const xml = await get(feed.url, "text");
       const items = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || [];
-      for (const item of items.slice(0, 20)) {
+      const fromFeed = [];
+      for (const item of items) {
         const title = tag(item, "title");
         const link = tag(item, "link") || tag(item, "guid");
         const time = Date.parse(tag(item, "pubDate") || tag(item, "dc:date"));
-        if (!title || !link) continue;
-        let summary = tag(item, "description");
+        // Only web links: a feed can't slip a "javascript:" link onto the page.
+        if (!title || !/^https?:\/\//i.test(link)) continue;
+        let summary = summaryOf(item);
         if (summary === title) summary = "";
         // Strip feed boilerplate ("Get our ... email, free app or daily news podcast", "Continue reading").
         summary = summary.replace(/\s*Get our [^.]*?(podcast|newsletter)\b\s*/gi, " ").replace(/\s*Continue reading.*$/i, "").trim();
         if (summary.length > 240) summary = summary.slice(0, 237).replace(/\s+\S*$/, "") + "…";
-        all.push({ title, link, source: feed.source, summary, time: Number.isFinite(time) ? new Date(time).toISOString() : null });
+        fromFeed.push({ title, link, source: feed.source, summary, time: Number.isFinite(time) ? new Date(time).toISOString() : null });
       }
+      // Feeds aren't always in time order (The Guardian's isn't), so take each feed's newest items.
+      all.push(...fromFeed.sort((a, b) => (b.time || "").localeCompare(a.time || "")).slice(0, 25));
     } catch (e) {
       errors[`feed:${feed.url}`] = String(e.message || e);
     }
