@@ -10,7 +10,7 @@ and GitHub Pages hosts the site.
 
 - **The world right now**: one plain-English line per theme (prices, jobs, borrowing, markets, energy)
   with an OK / watch / alert status.
-- **Numbers** (FRED, CoinGecko): Brent oil, CPI and core inflation, gas, natural gas, world food prices,
+- **Numbers** (FRED, CoinGecko): Brent oil, CPI and core CPI, core PCE (the Fed's measure), gas, natural gas, world food prices,
   the Sahm-rule recession signal, jobless claims, unemployment, copper, Fed rate, 10-year yield,
   yield curve, mortgage rate, dollar index, VIX, gold and bitcoin. Each tile shows a status, the
   change over the past month and year, a 1/5/10-year chart with reference lines, where the value
@@ -27,12 +27,17 @@ and GitHub Pages hosts the site.
 The rules live in `scripts/lib.mjs` and are covered by `tests/lib.test.mjs` (run with
 `node --test tests/*.test.mjs`; the hourly job runs them first).
 
-- Known thresholds where they exist: Fed 2% inflation goal, Sahm rule 0.5, yield curve below 0,
-  VIX 20/30, jobless claims 250K.
+- Known thresholds where they exist: Fed 2% inflation goal (graded on core PCE, the measure the goal
+  is set on; CPI tiles are banded around 2% without claiming the goal), Sahm rule 0.5, yield curve
+  below 0, VIX 20/30, jobless claims 250K.
 - Otherwise each number is compared with its own last 10 years (percentile rank).
 - "Sharp rise/drop" = the latest one-month move is over 2 standard deviations from that number's
-  usual monthly moves.
-- Inflation momentum = last 3 months annualized, next to year-over-year.
+  usual monthly moves, in the bad direction. A big move the good way is labelled "Rising/Falling fast"
+  without a warning.
+- Inflation momentum = last 3 months annualized, next to year-over-year, for the same month.
+  October 2025 CPI was never published (government shutdown); its year-ago base is estimated from
+  September and November 2025, and the tile says so.
+- Long charts are thinned by keeping each stretch's low and high, so spikes and the Low/High stay true.
 - If a source fails, the previous good value is kept and marked "Delayed".
 
 Background research: see the project's evaluation notes.

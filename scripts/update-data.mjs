@@ -8,7 +8,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import {
   isoDaysAgo, yoy, annualized3m, downsample, percentileRank, valueAtOrBefore, frequencyOf,
-  changeBetween, moveZScore, statusFor, buildSummary, topicsFor, clusterNews,
+  changeBetween, moveZScore, statusFor, buildSummary, topicsFor, clusterNews, oddsRow, chooseOdds,
 } from "./lib.mjs";
 
 const FRED_KEY = (process.env.FRED_API_KEY || "").trim();
@@ -24,11 +24,14 @@ const INDICATORS = [
   { id: "DCOILBRENTEU", name: "Brent crude oil", group: "Energy & prices", unit: "$ per barrel", fmt: "money", dp: 2, direction: "down",
     about: "The global oil benchmark. It feeds into fuel, shipping, airline and food costs worldwide, usually within weeks." },
   { id: "CPIAUCSL", name: "Inflation (CPI)", group: "Energy & prices", unit: "% vs a year ago", fmt: "pct", dp: 1, transform: "yoy", direction: "down",
+    refs: [{ value: 2, label: "2%" }],
+    about: "How much US consumer prices rose over the past 12 months: the inflation number in the news. The Fed's 2% goal is set on a related measure (PCE, see \"Core PCE inflation\"). Seasonally adjusted; the latest month can be revised." },
+  { id: "CPILFESL", name: "Core inflation (CPI)", group: "Energy & prices", unit: "% vs a year ago", fmt: "pct", dp: 1, transform: "yoy", direction: "down",
+    refs: [{ value: 2, label: "2%" }],
+    about: "CPI without food and energy, which swing a lot, so it shows the underlying trend." },
+  { id: "PCEPILFE", name: "Core PCE inflation", group: "Energy & prices", unit: "% vs a year ago, Fed's measure", fmt: "pct", dp: 1, transform: "yoy", direction: "down",
     refs: [{ value: 2, label: "Fed goal 2%" }],
-    about: "How much US consumer prices rose over the past 12 months. The Federal Reserve aims for 2%. Seasonally adjusted; the latest month can be revised." },
-  { id: "CPILFESL", name: "Core inflation", group: "Energy & prices", unit: "% vs a year ago", fmt: "pct", dp: 1, transform: "yoy", direction: "down",
-    refs: [{ value: 2, label: "Fed goal 2%" }],
-    about: "Inflation without food and energy, which swing a lot. Shows the underlying trend the Fed watches most." },
+    about: "The measure the Federal Reserve's 2% goal is set on: personal consumption prices without food and energy. It covers more spending than CPI and is published a few weeks later." },
   { id: "GASREGW", name: "US gas price", group: "Energy & prices", unit: "$ per gallon, weekly", fmt: "money", dp: 2, direction: "down",
     about: "Average price of regular gasoline at the pump across the US." },
   { id: "DHHNGSP", name: "Natural gas (US)", group: "Energy & prices", unit: "$ per MMBtu", fmt: "money", dp: 2, direction: "down",
@@ -37,7 +40,7 @@ const INDICATORS = [
     about: "IMF index of global food commodity prices. Spikes hit poorer countries hardest and have triggered unrest." },
 
   // Jobs and growth
-  { id: "SAHMREALTIME", name: "Recession signal (Sahm rule)", group: "Jobs & growth", unit: "pts above recent low", fmt: "pp", dp: 2, direction: "down",
+  { id: "SAHMREALTIME", name: "Recession signal (Sahm rule)", group: "Jobs & growth", unit: "pts vs past-year low", fmt: "pp", dp: 2, direction: "down",
     refs: [{ value: 0.5, label: "Trigger 0.5" }],
     about: "Compares the 3-month average unemployment rate with its lowest point in the past year. A rise of 0.5 has marked the start of every US recession since 1970. It fired falsely in 2024, so treat it as a warning light, not proof." },
   { id: "IC4WSA", name: "Jobless claims", group: "Jobs & growth", unit: "new claims per week, 4-week average", fmt: "compact", dp: 0, direction: "down",
@@ -91,7 +94,8 @@ async function get(url, as = "json") {
   if (!res.ok) {
     const body = (await res.text().catch(() => "")).slice(0, 300);
     const detail = body.match(/"error_message"\s*:\s*"([^"]+)"/)?.[1] || "";
-    throw new Error(`HTTP ${res.status} for ${url.replace(/api_key=[^&]+/, "api_key=***")}${detail ? `: ${detail}` : ""}`);
+    const msg = `HTTP ${res.status} for ${url.replace(/api_key=[^&]+/, "api_key=***")}${detail ? `: ${detail}` : ""}`;
+    throw Object.assign(new Error(msg), { status: res.status, detail });
   }
   return as === "json" ? res.json() : res.text();
 }
@@ -107,8 +111,9 @@ async function fredSeries(id) {
       const d = await get(fredUrl("series/observations", { series_id: id, observation_start: start }));
       return d.observations.filter(o => o.value !== ".").map(o => ({ date: o.date, value: Number(o.value) })).filter(o => Number.isFinite(o.value));
     } catch (e) {
-      if (/api_key/i.test(e.message)) fredKeyProblem = e.message;
-      else throw e;
+      // Only FRED's own "bad api_key" answer means the key is wrong. Anything else (a 500, a timeout)
+      // is a one-off: use the CSV for this series and keep the API for the rest.
+      if (e.status === 400 && /api_key/i.test(e.detail || "")) fredKeyProblem = e.message;
     }
   }
   const csv = await get(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`, "text");
@@ -154,12 +159,15 @@ function analyze(meta, rawObs, levels) {
   const latest = obs[obs.length - 1];
   const prev = obs[obs.length - 2];
   const at = (days) => valueAtOrBefore(obs, isoDaysAgo(days, Date.parse(latest.date)));
+  const gapDays = (a, b) => (Date.parse(b.date) - Date.parse(a.date)) / 864e5;
 
   const baseline = obs.filter(o => o.date > isoDaysAgo(HISTORY_YEARS * 365, Date.parse(latest.date)));
   const baselineYears = Math.max(1, Math.round((Date.parse(latest.date) - Date.parse(baseline[0].date)) / (365 * 864e5)));
   const lastYear = obs.filter(o => o.date > isoDaysAgo(365, Date.parse(latest.date)));
-  const monthAgo = freq === "monthly" || freq === "quarterly" ? prev : at(30);
-  const yearAgo = at(365);
+  // "vs prior month" only when the prior release really is the month before (a skipped month isn't).
+  const monthAgo = freq === "monthly" ? (gapDays(prev, latest) <= 35 ? prev : null) : freq === "quarterly" ? prev : at(30);
+  // CoinGecko's free year starts a day short of 365 days back, so accept a first point within 3 days.
+  const yearAgo = at(365) || (gapDays(obs[0], latest) >= 362 ? obs[0] : null);
   const twoYears = obs.filter(o => o.date > isoDaysAgo(730, Date.parse(latest.date)));
 
   const s = {
@@ -174,8 +182,11 @@ function analyze(meta, rawObs, levels) {
     change1y: yearAgo ? changeBetween(yearAgo.value, latest.value, inPoints) : null,
     change90d: at(90) ? latest.value - at(90).value : null,
     yearAgoValue: yearAgo ? yearAgo.value : null,
-    momentum: meta.transform === "yoy" && levels ? annualized3m(levels) : null,
+    // Same month as the headline number, even when the raw levels run a month further.
+    momentum: meta.transform === "yoy" && levels ? annualized3m(levels, latest.date) : null,
     pctRank: baseline.length > 20 ? percentileRank(baseline.map(o => o.value), latest.value) : null,
+    isHigh: baseline.length > 20 && baseline.every(o => o.value <= latest.value),
+    isLow: baseline.length > 20 && baseline.every(o => o.value >= latest.value),
     baselineYears,
     moveZ: moveZScore(baseline, freq, inPoints),
     minRecent: Math.min(...twoYears.map(o => o.value)),
@@ -183,9 +194,13 @@ function analyze(meta, rawObs, levels) {
     high52: Math.max(...lastYear.map(o => o.value)),
     stale: (Date.now() - Date.parse(latest.date)) / 864e5 > STALE_AFTER_DAYS[freq],
     h1: downsample(lastYear, 260).map(o => [o.date, round(o.value)]),
-    h10: downsample(baseline, 260).map(o => [o.date, round(o.value)]),
+    h10: downsample(baseline, 400).map(o => [o.date, round(o.value)]),
   };
   s.status = statusFor(meta, s);
+  if (latest.estBase) {
+    const missing = new Date(latest.estBase + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    s.status.text += ` ${missing} was never published (US government shutdown), so the year-ago level is estimated from the months either side.`;
+  }
   return s;
 }
 
@@ -203,7 +218,7 @@ async function indicators(previous) {
   const keepPrevious = (id, e) => {
     errors[id] = String(e.message || e);
     const old = previous.find(p => p.id === id && p.status); // only reuse entries in the current format
-    if (old) out.push({ ...old, stale: true, fetchFailed: true });
+    if (old) out.push({ ...old, next: null, stale: true, fetchFailed: true });
   };
   for (const meta of INDICATORS) {
     try {
@@ -302,30 +317,15 @@ async function odds(previous) {
       for (const e of events) {
         if (seen.has(e.slug)) continue;
         seen.add(e.slug);
-        const markets = (e.markets || []).filter(m => m.active && !m.closed && m.outcomePrices);
-        if (!markets.length) continue;
-        const scored = markets.map(m => ({ label: m.groupItemTitle || "Yes", p: Number(JSON.parse(m.outcomePrices)[0]) }))
-          .filter(m => Number.isFinite(m.p))
-          .sort((a, b) => b.p - a.p);
-        if (!scored.length) continue;
-        out.push({
-          topic: t,
-          title: e.title,
-          leader: markets.length === 1 ? "Yes" : scored[0].label,
-          probability: scored[0].p,
-          runnerUp: markets.length > 1 && scored[1] ? { label: scored[1].label, probability: scored[1].p } : null,
-          volume24h: Math.round(e.volume24hr || 0),
-          endDate: e.endDate || null,
-          link: `https://polymarket.com/event/${e.slug}`,
-        });
+        const row = oddsRow(e, t);
+        if (row) out.push(row);
       }
     } catch (e) {
       errors[`polymarket:${t}`] = String(e.message || e);
     }
   }
-  // Skip near-certain single-answer markets: a 99% "yes" tells you little. Keep the most-traded of the rest.
-  const useful = out.filter(o => o.probability < 0.97 || o.runnerUp);
-  return useful.length ? useful.slice(0, 10) : previous;
+  const chosen = chooseOdds(out, ODDS_TAGS, 10);
+  return chosen.length ? chosen : previous;
 }
 
 async function trending(previous) {

@@ -19,7 +19,10 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
+      # The branch tip, not the commit the run was queued at, so it starts from the newest data.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -36,4 +39,11 @@ jobs:
           git add data/latest.json
           git diff --cached --quiet && exit 0
           git commit -m "Update data $(date -u +'%Y-%m-%d %H:%M UTC')"
-          git push
+          # If main moved while this ran (a merge, or another run), replay on top of it and keep
+          # this run's freshly fetched data file. Retry a few times before giving up.
+          for i in 1 2 3; do
+            git pull --rebase -X theirs origin "$GITHUB_REF_NAME" || git rebase --abort
+            git push && exit 0
+            sleep 5
+          done
+          exit 1

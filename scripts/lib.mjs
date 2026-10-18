@@ -4,28 +4,54 @@ const DAY = 864e5;
 
 export const isoDaysAgo = (days, from = Date.now()) => new Date(from - days * DAY).toISOString().slice(0, 10);
 
+const monthIndex = (date) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
+const monthKey = (i) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+
+// Change vs the same month a year earlier. If that one month was never published (October 2025,
+// during the US government shutdown) but the months either side exist, the base is estimated
+// from them and the point is flagged estBase so the page can say so.
 export function yoy(obs) {
   const byMonth = new Map(obs.map(o => [o.date.slice(0, 7), o.value]));
   return obs.flatMap(o => {
-    const [y, m] = o.date.split("-");
-    const prev = byMonth.get(`${Number(y) - 1}-${m}`);
-    return prev ? [{ date: o.date, value: (o.value / prev - 1) * 100 }] : [];
+    const base = monthIndex(o.date) - 12;
+    let prev = byMonth.get(monthKey(base)), estBase = false;
+    if (!prev) {
+      const a = byMonth.get(monthKey(base - 1)), b = byMonth.get(monthKey(base + 1));
+      if (a && b) { prev = Math.sqrt(a * b); estBase = true; }
+    }
+    if (!prev) return [];
+    const point = { date: o.date, value: (o.value / prev - 1) * 100 };
+    return estBase ? [{ ...point, estBase: monthKey(base) }] : [point];
   });
 }
 
-// Inflation pace over the latest 3 months, expressed as a yearly rate. Catches turns that
-// year-over-year only shows months later.
-export function annualized3m(levels) {
-  if (levels.length < 4) return null;
-  const now = levels[levels.length - 1].value;
-  const then = levels[levels.length - 4].value;
-  return ((now / then) ** 4 - 1) * 100;
+// Inflation pace over the 3 months up to endDate, expressed as a yearly rate. Catches turns that
+// year-over-year only shows months later. Returns null if the month 3 months back is missing,
+// rather than passing off a longer stretch as 3 months.
+export function annualized3m(levels, endDate = levels.at(-1)?.date) {
+  const upTo = levels.filter(o => o.date <= endDate);
+  const now = upTo.at(-1);
+  if (!now) return null;
+  const then = upTo.find(o => monthIndex(now.date) - monthIndex(o.date) === 3);
+  return then ? ((now.value / then.value) ** 4 - 1) * 100 : null;
 }
 
-export function downsample(points, max) {
+// Thins a long series for the charts while keeping each stretch's low and high, so spikes and
+// record lows survive and the chart's "Low / High" stay true. Always keeps the latest point.
+export function downsample(points, max, val = (p) => (typeof p === "number" ? p : p.value)) {
   if (points.length <= max) return points;
-  const step = (points.length - 1) / (max - 1);
-  return Array.from({ length: max }, (_, i) => points[Math.round(i * step)]);
+  const buckets = Math.floor((max - 1) / 2), size = (points.length - 1) / buckets, out = [];
+  for (let b = 0; b < buckets; b++) {
+    const start = Math.floor(b * size), end = Math.floor((b + 1) * size);
+    let lo = start, hi = start;
+    for (let k = start; k < end; k++) {
+      if (val(points[k]) < val(points[lo])) lo = k;
+      if (val(points[k]) > val(points[hi])) hi = k;
+    }
+    for (const k of lo === hi ? [lo] : [Math.min(lo, hi), Math.max(lo, hi)]) out.push(points[k]);
+  }
+  out.push(points[points.length - 1]);
+  return out;
 }
 
 // Share of past readings at or below this one, 0-100. Ties count half so a flat series reads ~50.
@@ -90,7 +116,19 @@ const SEVERITY = { good: 0, info: 0, watch: 1, alert: 2 };
 export const worst = (levels) => levels.reduce((w, l) => (SEVERITY[l] > SEVERITY[w] ? l : w), "good");
 
 const fmtPct = (v, dp = 1) => `${v.toFixed(dp)}%`;
-const ord = (p) => `${Math.round(p)}%`;
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+
+// Where a reading sits in its own history. Records are worded from isHigh/isLow (exact), and
+// percentages never say 0% or 100%, which can't be true when the reading is part of the history.
+function rankPhrase(s, period, noun = "readings") {
+  if (s.pctRank == null) return "";
+  if (s.isHigh) return `the highest in ${period}`;
+  if (s.isLow) return `the lowest in ${period}`;
+  const above = s.pctRank >= 50;
+  const p = Math.min(99, Math.max(1, Math.floor(above ? s.pctRank : 100 - s.pctRank)));
+  return `${above ? "higher" : "lower"} than ${p}% of ${noun} in ${period}`;
+}
+const periodOf = (s) => (s.baselineYears > 1 ? `the last ${s.baselineYears} years` : "the last year");
 
 function bandLabel(p, years) {
   const span = years >= 10 ? "10-yr" : `${years}-yr`;
@@ -118,26 +156,36 @@ function genericStatus(s, meta) {
   if (meta.direction === "up" && p <= 15) level = "watch";
   let label = p == null ? "Latest" : bandLabel(p, s.baselineYears);
   if (s.moveZ != null && Math.abs(s.moveZ) >= 2) {
-    level = Math.abs(s.moveZ) >= 3 ? "alert" : level === "alert" ? "alert" : "watch";
-    label = s.moveZ > 0 ? "Sharp rise" : "Sharp drop";
+    // Only a big move the bad way is a warning (oil falling fast is good news for most people).
+    // Numbers with no good or bad direction get a "watch" at most.
+    const neutral = meta.direction !== "up" && meta.direction !== "down";
+    const bad = neutral || (meta.direction === "down") === (s.moveZ > 0);
+    if (bad) {
+      level = !neutral && Math.abs(s.moveZ) >= 3 ? "alert" : level === "alert" ? "alert" : "watch";
+      label = s.moveZ > 0 ? "Sharp rise" : "Sharp drop";
+    } else if (level === "info") {
+      label = s.moveZ > 0 ? "Rising fast" : "Falling fast";
+    }
   }
-  const span = s.baselineYears > 1 ? `${s.baselineYears} years` : "year";
-  const where = p == null ? "" : `Higher than ${ord(p)} of readings in the last ${span}. `;
-  return { level, label, text: `${where}${moveSentence(s)}`.trim() };
+  const where = rankPhrase(s, periodOf(s));
+  return { level, label, text: `${where ? cap(where) + ". " : ""}${moveSentence(s)}`.trim() };
 }
 
 export const RULES = {
-  CPIAUCSL: inflationRule("Prices"),
-  CPILFESL: inflationRule("Prices excluding food and energy"),
+  // The Fed's 2% goal is defined on PCE prices, so only the PCE tile is graded against "the goal".
+  // CPI usually runs a little above PCE, but not always (in 2026 core PCE ran about 0.5 pts higher).
+  CPIAUCSL: inflationRule("Prices", false),
+  CPILFESL: inflationRule("Prices excluding food and energy", false),
+  PCEPILFE: inflationRule("Prices excluding food and energy", true),
 
   SAHMREALTIME(s) {
-    const v = s.value;
+    const v = Number(s.value.toFixed(2));
     const level = v >= 0.5 ? "alert" : v >= 0.3 ? "watch" : "good";
     const label = v >= 0.5 ? "Triggered" : v >= 0.3 ? "Getting close" : "No signal";
-    return {
-      level, label,
-      text: `Unemployment is ${v.toFixed(2)} pts above its recent low. At 0.5 this has flagged every US recession since 1970, plus one false alarm in 2024.`,
-    };
+    const where = v <= 0
+      ? "Unemployment (3-month average) is at its lowest level of the past year."
+      : `Unemployment (3-month average) is ${v.toFixed(2)} pts above its low of the past year.`;
+    return { level, label, text: `${where} At 0.5 this has flagged every US recession since 1970, plus one false alarm in 2024.` };
   },
 
   IC4WSA(s) {
@@ -180,11 +228,20 @@ export const RULES = {
   },
 };
 
-function inflationRule(what) {
+// Bands around 2%. Too low is a warning too: falling prices usually mean a slump.
+function inflationBand(v, fedMeasure) {
+  if (v < 0) return ["watch", "Falling prices"];
+  if (v < 1.5) return ["watch", fedMeasure ? "Below goal" : "Low"];
+  if (v <= 2.5) return ["good", fedMeasure ? "Near 2% goal" : "Near 2%"];
+  if (v <= 4) return ["watch", fedMeasure ? "Above goal" : "Above 2%"];
+  return ["alert", "High"];
+}
+const goalWord = (v) => (v < 1.5 ? "below" : v <= 2.5 ? "close to" : "above");
+
+function inflationRule(what, fedMeasure) {
   return (s) => {
     const v = s.value;
-    const level = v <= 2.5 ? "good" : v <= 4 ? "watch" : "alert";
-    const label = v <= 2.5 ? "Near 2% goal" : v <= 4 ? "Above goal" : "High";
+    const [level, label] = inflationBand(v, fedMeasure);
     let trend = "";
     if (s.momentum != null) {
       const m = s.momentum.toFixed(1);
@@ -192,7 +249,8 @@ function inflationRule(what) {
       else if (s.momentum < v - 0.5) trend = ` Cooling: the last 3 months ran at a ${m}% yearly pace.`;
       else trend = ` Steady: the last 3 months ran at a ${m}% yearly pace.`;
     }
-    return { level, label, text: `${what} are up ${fmtPct(v)} from a year ago (the Fed aims for 2%).${trend}` };
+    const goal = fedMeasure ? " (the Fed aims for 2%)" : "";
+    return { level, label, text: `${what} are ${v < 0 ? "down" : "up"} ${fmtPct(Math.abs(v))} from a year ago${goal}.${trend}` };
   };
 }
 
@@ -209,11 +267,16 @@ export function buildSummary(byId) {
     if (!parts.length || !text) return;
     const level = worst(parts.map(p => p.status.level));
     const lead = parts.find(p => p.status.level === level) || parts[0];
-    cards.push({ theme, level, label: lead.status.label, text, ids: parts.map(p => p.id) });
+    // The lead tile comes first: the card links to the tile its label came from.
+    cards.push({ theme, level, label: lead.status.label, text, ids: [lead, ...parts.filter(p => p !== lead)].map(p => p.id) });
   };
 
-  const cpi = g("CPIAUCSL");
-  if (cpi) add("Prices", ["CPIAUCSL", "CPILFESL"], `Inflation is ${fmtPct(cpi.value)}${cpi.status.level === "good" ? ", close to the Fed's 2% goal" : ", above the Fed's 2% goal"}.${cpi.momentum != null ? ` Recent pace: ${fmtPct(cpi.momentum)} a year.` : ""}`);
+  const cpi = g("CPIAUCSL"), pce = g("PCEPILFE");
+  if (cpi) {
+    const pace = cpi.momentum != null ? `, at a ${fmtPct(cpi.momentum)} yearly pace over the last 3 months` : "";
+    const goal = pce ? ` The Fed's own measure (core PCE) is ${fmtPct(pce.value)}, ${goalWord(pce.value)} its 2% goal.` : "";
+    add("Prices", ["CPIAUCSL", "CPILFESL", "PCEPILFE"], `Prices are ${cpi.value < 0 ? "down" : "up"} ${fmtPct(Math.abs(cpi.value))} from a year ago${pace}.${goal}`);
+  }
 
   const sahm = g("SAHMREALTIME"), claims = g("IC4WSA"), un = g("UNRATE");
   if (un) {
@@ -227,7 +290,8 @@ export function buildSummary(byId) {
     const bits = [];
     if (mort) {
       const jump = mort.moveZ != null && mort.moveZ >= 2 ? ", after an unusually sharp rise this month" : mort.moveZ != null && mort.moveZ <= -2 ? ", after an unusually sharp drop this month" : "";
-      bits.push(`Mortgages cost ${fmtPct(mort.value, 2)}${mort.pctRank != null ? `, higher than ${ord(mort.pctRank)} of the last 10 years` : ""}${jump}.`);
+      const rank = rankPhrase(mort, periodOf(mort), "weeks");
+      bits.push(`Mortgages cost ${fmtPct(mort.value, 2)}${rank ? `, ${rank}` : ""}${jump}.`);
     }
     if (curve) bits.push(`Yield curve: ${curve.status.label.toLowerCase()}.`);
     add("Borrowing", ["T10Y2Y", "MORTGAGE30US", "DGS10"], bits.join(" "));
@@ -240,9 +304,52 @@ export function buildSummary(byId) {
   }
 
   const oil = g("DCOILBRENTEU");
-  if (oil) add("Energy", ["DCOILBRENTEU", "GASREGW"], `Brent oil is $${oil.value.toFixed(0)}${oil.pctRank != null ? `, higher than ${ord(oil.pctRank)} of days in 10 years` : ""}. ${moveSentence(oil)}`);
+  if (oil) {
+    const rank = rankPhrase(oil, periodOf(oil), "days");
+    add("Energy", ["DCOILBRENTEU", "GASREGW"], `Brent oil is $${oil.value.toFixed(0)}${rank ? `, ${rank}` : ""}. ${moveSentence(oil)}`.trim());
+  }
 
   return cards;
+}
+
+// ---- Prediction markets (Polymarket) ----
+
+// One row per event. negRisk events are one question with competing answers ("Who will win?").
+// Other multi-market events are ladders of separate yes/no questions ("below 4.45%?", "below 4.50%?";
+// "by June?", "by December?") that overlap, so there is no leader or runner-up: show the rung nearest 50/50.
+export function oddsRow(e, topic) {
+  const scored = (e.markets || [])
+    .filter(m => m.active && !m.closed && m.outcomePrices)
+    .map(m => {
+      let p = NaN;
+      try { p = Number(JSON.parse(m.outcomePrices)[0]); } catch { /* malformed price list */ }
+      return { label: m.groupItemTitle || "Yes", p };
+    })
+    .filter(m => Number.isFinite(m.p))
+    .sort((a, b) => b.p - a.p);
+  if (!scored.length) return null;
+  const ladder = scored.length > 1 && e.negRisk !== true;
+  const pick = ladder ? scored.reduce((a, b) => (Math.abs(b.p - 0.5) < Math.abs(a.p - 0.5) ? b : a)) : scored[0];
+  return {
+    topic,
+    title: e.title,
+    leader: scored.length === 1 ? "Yes" : pick.label,
+    probability: pick.p,
+    runnerUp: !ladder && scored[1] ? { label: scored[1].label, probability: scored[1].p } : null,
+    volume24h: Math.round(e.volume24hr || 0),
+    endDate: e.endDate || null,
+    link: `https://polymarket.com/event/${encodeURIComponent(e.slug)}`,
+  };
+}
+
+// Drops near-certain yes/no questions (99% or 1% "yes" tells you little; multi-answer ones stay),
+// then alternates topics so world events show next to the economy. Each topic arrives most-traded first.
+export function chooseOdds(rows, topics, max) {
+  const useful = rows.filter(o => o.runnerUp || Math.max(o.probability, 1 - o.probability) < 0.97);
+  const byTopic = topics.map(t => useful.filter(o => o.topic === t));
+  const mixed = [];
+  for (let i = 0; byTopic.some(list => i < list.length); i++) for (const list of byTopic) if (list[i]) mixed.push(list[i]);
+  return mixed.slice(0, max);
 }
 
 // ---- News ----

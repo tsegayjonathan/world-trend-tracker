@@ -57,10 +57,16 @@ function ago(iso) {
   return `${Math.round(h / 24)} days ago`;
 }
 
+// Whole days from the visitor's own today to a release date, by calendar date (not UTC).
+function daysUntil(iso) {
+  const t = new Date();
+  return Math.round((Date.parse(iso) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5);
+}
+
 function untilText(iso) {
-  const days = Math.round((Date.parse(iso + "T12:00:00Z") - Date.now()) / 864e5);
+  const days = daysUntil(iso);
   const when = fmtDate(iso, false);
-  return days <= 0 ? "today" : days === 1 ? "tomorrow" : days < 7 ? `${when} (in ${days} days)` : when;
+  return days === 0 ? "today" : days === 1 ? "tomorrow" : days < 7 ? `${when} (in ${days} days)` : when;
 }
 
 function statusHtml(st) {
@@ -160,7 +166,8 @@ function wireCharts() {
 
 function tileHtml(ind, i) {
   const m = isMonthly(ind);
-  const next = ind.next?.date ? `Next update ${esc(untilText(ind.next.date))}` : "";
+  // A past date means the data is behind (a carried-over value, or the hourly job stopped): don't promise it.
+  const next = ind.next?.date && !ind.fetchFailed && daysUntil(ind.next.date) >= 0 ? `Next update ${esc(untilText(ind.next.date))}` : "";
   const delayed = ind.fetchFailed ? `<span class="delayed">Delayed: couldn't refresh</span>` : ind.stale ? `<span class="delayed">Delayed at source</span>` : "";
   return `<article class="tile" id="t-${esc(ind.id)}">
     <div class="tile-head"><h4 class="tile-name">${esc(ind.name)}</h4>${statusHtml(ind.status)}</div>
