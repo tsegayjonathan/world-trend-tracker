@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["scripts/**", ".github/workflows/update-data.yml"]
+    paths: ["scripts/**", "tests/**", ".github/workflows/update-data.yml"]
 
 permissions:
   contents: write
@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check the dashboard logic
+        run: node --test tests/*.test.mjs
       - name: Fetch latest numbers, odds and news
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
