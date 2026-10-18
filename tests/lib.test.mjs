@@ -207,6 +207,7 @@ test("the same story from two outlets is grouped; different stories are not", ()
 test("'West Bank' is not about banks", () => {
   assert.deepEqual(topicsFor("Israeli settlers attack European diplomats in the occupied West Bank"), ["Conflict", "Politics"]);
   assert.deepEqual(topicsFor("World Bank cuts growth forecast"), ["Economy"]);
+  assert.deepEqual(topicsFor("Palestinian killed in West Bank raid"), ["Conflict"]);
 });
 
 test("singular and plural headlines of one story match; generic shared words don't", () => {
