@@ -123,9 +123,15 @@ function chartHtml(ind, i) {
   const last = pts.length - 1;
   const area = `${d}L${g.X(g.xs[last]).toFixed(1)},${g.H}L${g.X(g.xs[0]).toFixed(1)},${g.H}Z`;
   const refs = (ind.refs || []).map((r) => `<line class="ref" x1="0" x2="${g.W}" y1="${g.Y(r.value).toFixed(1)}" y2="${g.Y(r.value).toFixed(1)}" vector-effect="non-scaling-stroke"/>`).join("");
+  // A label sits above its line (below it near the top). When two lines are close, the second
+  // label moves to the right of the first instead of covering it.
+  const LABEL_H = 14 / g.H, placed = [];
   const refLabels = (ind.refs || []).map((r) => {
-    const top = g.Y(r.value) / g.H;
-    return `<span class="ref-label${top < 0.25 ? " below" : ""}" style="top:${(top * 100).toFixed(1)}%">${esc(r.label)}</span>`;
+    const top = g.Y(r.value) / g.H, below = top < 0.25;
+    const box = below ? [top, top + LABEL_H] : [top - LABEL_H, top];
+    const left = placed.filter((p) => p.box[0] < box[1] && box[0] < p.box[1]).reduce((x, p) => Math.max(x, p.right), 0);
+    placed.push({ box, right: left + r.label.length * 0.6 + 1 }); // width in em, roughly
+    return `<span class="ref-label${below ? " below" : ""}" style="top:${(top * 100).toFixed(1)}%${left ? `;left:${left.toFixed(1)}em` : ""}">${esc(r.label)}</span>`;
   }).join("");
   const lo = Math.min(...g.ys), hi = Math.max(...g.ys);
   const shortRange = range > 1 && ind.baselineYears < range ? ` (only ${ind.baselineYears} yr available)` : "";

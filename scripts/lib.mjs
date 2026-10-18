@@ -216,7 +216,8 @@ export const RULES = {
   },
 
   UNRATE(s) {
-    const d = s.change1y;
+    // Rounded as shown, so "up 0.2 pts" and the label always agree.
+    const d = s.change1y == null ? null : Math.round(s.change1y * 10) / 10;
     const level = d != null && d >= 0.5 ? "alert" : d != null && d >= 0.2 ? "watch" : "good";
     const label = level === "alert" ? "Rising fast" : level === "watch" ? "Edging up" : "Steady";
     const yr = d == null ? "" : ` That's ${d > 0 ? "up" : d < 0 ? "down" : "unchanged"}${d ? ` ${Math.abs(d).toFixed(1)} pts` : ""} from a year ago.`;
@@ -352,7 +353,7 @@ export function oddsRow(e, topic) {
   return {
     topic,
     title: e.title,
-    leader: pick.label,
+    leader: pick.label, // a rung's or answer's name; plain yes/no questions have none and read "Yes"
     probability: pick.p,
     runnerUp: !ladder && scored[1] ? { label: scored[1].label, probability: scored[1].p } : null,
     volume24h: Math.round(e.volume24hr || 0),
@@ -401,7 +402,7 @@ export function similar(a, b) {
 }
 
 const TOPICS = [
-  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|(?<!water )bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting(?! for\b))\b/i],
+  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|(?<!water[- ]?)bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting(?! for (?:justice|their lives|survival|(?:their |civil |human )?rights)\b))\b/i],
   ["Economy", /\b(econom\w*|inflation|interest rates?|the fed|federal reserve|central bank|tariffs?|trade|markets?|stocks?|shares|prices?|jobs|unemployment|gdp|recession|(?<!west )banks?|banking|debt|budget|tax\w*|dollar|currenc\w*|investors?|compan\w*|business\w*|imports?|exports?)\b/i],
   ["Energy & climate", /\b(climate|energy|oil|gas|opec|tankers?|deforestation|emissions?|heatwaves?|wildfires?|bushfires?|floods?|flooding|storms?|hurricanes?|typhoons?|cyclones?|drought|earthquakes?|solar|nuclear|weather|power cuts?)\b/i],
   ["Politics", /\b(elections?|votes?|voters?|president|prime minister|parliament|congress|senate|ministers?|government|courts?|judges?|laws?|protests?|protesters|polic(y|ies)|campaign|party|sanctions?|diplomat\w*|summit|white house)\b/i],

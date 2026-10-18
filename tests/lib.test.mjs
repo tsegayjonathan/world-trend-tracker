@@ -198,6 +198,9 @@ test("odds: ladders of separate yes/no questions get no leader or runner-up", ()
   assert.equal(lastRung.leader, "December 31"); // the one rung left keeps its date
   const plain = oddsRow({ title: "Recession in 2026?", slug: "w", markets: [m("", 0.2)] }, "economy");
   assert.equal(plain.leader, "Yes");
+  const closed = { ...m("October 31", 0.01), closed: true };
+  const oneOpen = oddsRow({ title: "Deal by...?", slug: "v", negRisk: false, markets: [closed, m("December 31", 0.12)] }, "economy");
+  assert.equal(oneOpen.leader, "December 31");
 });
 
 test("odds: near-certain yes/no questions are dropped and topics alternate", () => {
@@ -215,6 +218,9 @@ test("topics come from the headline, not side mentions in the summary", () => {
   assert.deepEqual(topicsFor("South Africans seek justice", "Families are still fighting for justice"), ["World"]);
   assert.deepEqual(topicsFor("Heavy fighting in eastern Congo as rebels advance"), ["Conflict"]);
   assert.deepEqual(topicsFor("Most homes lost in black summer bushfires were near bush"), ["Energy & climate"]);
+  assert.deepEqual(topicsFor("Water-bombing helicopters battle bushfire near Sydney"), ["Energy & climate"]);
+  assert.deepEqual(topicsFor("Heavy fighting for control of Pokrovsk"), ["Conflict"]);
+  assert.deepEqual(topicsFor("Bomb threat at airport"), ["Conflict"]);
 });
 
 test("the same story from two outlets is grouped; different stories are not", () => {
