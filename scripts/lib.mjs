@@ -25,6 +25,25 @@ export function yoy(obs) {
   });
 }
 
+// The reading to compare with for "vs 1 yr ago". Monthly and quarterly numbers use the same month
+// a year earlier; if that one month was never published, it is estimated as the midpoint of the
+// months either side and flagged est. Daily and weekly numbers use the last reading at most a week
+// before the date a year back (or the first reading, when the history starts up to 3 days short).
+export function yearAgoPoint(obs, freq) {
+  const latest = obs.at(-1);
+  if (freq === "monthly" || freq === "quarterly") {
+    const byMonth = new Map(obs.map(o => [monthIndex(o.date), o]));
+    const target = monthIndex(latest.date) - 12;
+    if (byMonth.has(target)) return byMonth.get(target);
+    const a = byMonth.get(target - 1), b = byMonth.get(target + 1);
+    return freq === "monthly" && a && b ? { date: `${monthKey(target)}-01`, value: (a.value + b.value) / 2, est: monthKey(target) } : null;
+  }
+  const daysBack = (o) => (Date.parse(latest.date) - Date.parse(o.date)) / DAY;
+  const at = valueAtOrBefore(obs, isoDaysAgo(365, Date.parse(latest.date)));
+  if (at) return daysBack(at) <= 372 ? at : null;
+  return daysBack(obs[0]) >= 362 ? obs[0] : null;
+}
+
 // Inflation pace over the 3 months up to endDate, expressed as a yearly rate. Catches turns that
 // year-over-year only shows months later. Returns null if the month 3 months back is missing,
 // rather than passing off a longer stretch as 3 months.
@@ -333,7 +352,7 @@ export function oddsRow(e, topic) {
   return {
     topic,
     title: e.title,
-    leader: scored.length === 1 ? "Yes" : pick.label,
+    leader: pick.label,
     probability: pick.p,
     runnerUp: !ladder && scored[1] ? { label: scored[1].label, probability: scored[1].p } : null,
     volume24h: Math.round(e.volume24hr || 0),

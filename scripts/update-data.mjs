@@ -7,7 +7,7 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import {
-  isoDaysAgo, yoy, annualized3m, downsample, percentileRank, valueAtOrBefore, frequencyOf,
+  isoDaysAgo, yoy, yearAgoPoint, annualized3m, downsample, percentileRank, valueAtOrBefore, frequencyOf,
   changeBetween, moveZScore, statusFor, buildSummary, topicsFor, clusterNews, oddsRow, chooseOdds,
 } from "./lib.mjs";
 
@@ -170,8 +170,8 @@ function analyze(meta, rawObs, levels) {
   const lastYear = obs.filter(o => o.date > isoDaysAgo(365, Date.parse(latest.date)));
   // "vs prior month" only when the prior release really is the month before (a skipped month isn't).
   const monthAgo = freq === "monthly" ? (gapDays(prev, latest) <= 35 ? prev : null) : freq === "quarterly" ? prev : at(30);
-  // CoinGecko's free year starts a day short of 365 days back, so accept a first point within 3 days.
-  const yearAgo = at(365) || (gapDays(obs[0], latest) >= 362 ? obs[0] : null);
+  const yearAgo = yearAgoPoint(obs, freq);
+  const fiveYears = obs.filter(o => o.date > isoDaysAgo(5 * 365, Date.parse(latest.date)));
   const twoYears = obs.filter(o => o.date > isoDaysAgo(730, Date.parse(latest.date)));
 
   const s = {
@@ -198,11 +198,14 @@ function analyze(meta, rawObs, levels) {
     high52: Math.max(...lastYear.map(o => o.value)),
     stale: (Date.now() - Date.parse(latest.date)) / 864e5 > STALE_AFTER_DAYS[freq],
     h1: downsample(lastYear, 260).map(o => [o.date, round(o.value)]),
+    // Each long view is thinned on its own, so its Low/High are that window's true extremes.
+    h5: fiveYears.length < baseline.length ? downsample(fiveYears, 400).map(o => [o.date, round(o.value)]) : null,
     h10: downsample(baseline, 400).map(o => [o.date, round(o.value)]),
   };
   s.status = statusFor(meta, s);
-  if (latest.estBase) {
-    const missing = new Date(latest.estBase + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const estimated = latest.estBase || yearAgo?.est;
+  if (estimated) {
+    const missing = new Date(estimated + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
     s.status.text += ` ${missing} was never published (US government shutdown), so the year-ago level is estimated from the months either side.`;
   }
   return s;
@@ -229,8 +232,9 @@ async function indicators(previous) {
       const raw = await fredSeries(meta.id);
       const ind = validate(analyze(meta, raw, meta.transform === "yoy" ? raw : null));
       // Remember the day a new reading first appeared, so today's release date is dropped once it's out.
+      // With no record yet (first run, or a new number), treat the reading on hand as already out.
       const old = previous.find(p => p.id === meta.id);
-      ind.releasedOn = !old || old.date === ind.date ? old?.releasedOn ?? null : TODAY_ET;
+      ind.releasedOn = old?.releasedOn && old.date === ind.date ? old.releasedOn : TODAY_ET;
       ind.next = ind.freq === "daily" ? null : await nextRelease(meta.id, ind.releasedOn === TODAY_ET);
       out.push({ ...ind, source: "FRED", link: `https://fred.stlouisfed.org/series/${meta.id}` });
     } catch (e) {

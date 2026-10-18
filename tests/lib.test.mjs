@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   yoy, annualized3m, percentileRank, frequencyOf, moveZScore, statusFor, buildSummary,
-  topicsFor, clusterNews, downsample, changeBetween, oddsRow, chooseOdds, keywords,
+  topicsFor, clusterNews, downsample, changeBetween, oddsRow, chooseOdds, keywords, yearAgoPoint,
 } from "../scripts/lib.mjs";
 
 const monthly = (values, start = 2020) =>
@@ -25,6 +25,23 @@ test("yoy estimates a single missing year-ago month from the months either side,
   assert.equal(last.estBase, "2020-10");
   assert.ok(Math.abs(last.value - 3) < 1e-9);
   assert.equal(yoy(obs).filter(o => o.estBase).length, 1);
+});
+
+test("'vs 1 yr ago' uses the same month a year back, estimating a single missing month", () => {
+  const obs = monthly([4.0, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 5.0, 5.1, 5.2, 5.3]);
+  assert.deepEqual(yearAgoPoint(obs, "monthly"), obs[1]);
+  const gap = obs.filter(o => o.date !== "2020-02-01"); // the year-ago month was never published
+  const est = yearAgoPoint(gap, "monthly");
+  assert.equal(est.est, "2020-02");
+  assert.ok(Math.abs(est.value - 4.1) < 1e-9);
+  assert.equal(yearAgoPoint(gap.filter(o => o.date !== "2020-03-01"), "monthly"), null); // two missing: no guess
+});
+
+test("'vs 1 yr ago' for daily and weekly data stays within a week of a year back", () => {
+  const day = (iso, value) => ({ date: iso, value });
+  assert.equal(yearAgoPoint([day("2025-10-15", 1), day("2026-10-16", 2)], "daily").value, 1);
+  assert.equal(yearAgoPoint([day("2025-10-01", 1), day("2026-10-16", 2)], "weekly"), null); // 380 days back
+  assert.equal(yearAgoPoint([day("2025-10-19", 1), day("2026-10-17", 2)], "daily").value, 1); // a coin year starting 2 days short
 });
 
 test("annualized3m turns a 1% rise over 3 months into about 4% a year", () => {
@@ -177,7 +194,10 @@ test("odds: ladders of separate yes/no questions get no leader or runner-up", ()
   assert.equal(ladder.leader, "Below 4.50%");
   const race = oddsRow({ title: "Fed decision?", slug: "y", negRisk: true, markets: [m("Hold", 0.7), m("Cut", 0.25)] }, "economy");
   assert.equal(race.leader, "Hold");
-  assert.equal(race.runnerUp.label, "Cut");
+  assert.equal(race.runnerUp.label, "Cut");  const lastRung = oddsRow({ title: "Clash by...?", slug: "z", negRisk: false, markets: [m("December 31", 0.26)] }, "geopolitics");
+  assert.equal(lastRung.leader, "December 31"); // the one rung left keeps its date
+  const plain = oddsRow({ title: "Recession in 2026?", slug: "w", markets: [m("", 0.2)] }, "economy");
+  assert.equal(plain.leader, "Yes");
 });
 
 test("odds: near-certain yes/no questions are dropped and topics alternate", () => {

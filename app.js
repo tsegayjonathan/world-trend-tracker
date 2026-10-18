@@ -92,10 +92,11 @@ function deltaHtml(ind, c, when) {
 
 // ---- Charts ----
 
+// Each view comes pre-thinned for its own window: cutting the 10-year series down to 5 years
+// here could drop the one point that held the 5-year low or high. No h5 means under 5 years of data.
 function seriesFor(ind) {
-  if (range === 1 || !ind.h10) return ind.h1;
-  const cutoff = new Date(Date.now() - range * 365 * 864e5).toISOString().slice(0, 10);
-  return ind.h10.filter((p) => p[0] >= cutoff);
+  const pts = range === 5 ? ind.h5 || ind.h10 : range === 10 ? ind.h10 : null;
+  return pts || ind.h1;
 }
 
 function geometry(ind, pts) {

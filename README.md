@@ -36,8 +36,10 @@ The rules live in `scripts/lib.mjs` and are covered by `tests/lib.test.mjs` (run
   without a warning.
 - Inflation momentum = last 3 months annualized, next to year-over-year, for the same month.
   October 2025 CPI was never published (government shutdown); its year-ago base is estimated from
-  September and November 2025, and the tile says so.
-- Long charts are thinned by keeping each stretch's low and high, so spikes and the Low/High stay true.
+  September and November 2025, and the tile says so. "vs 1 yr ago" for any monthly number compares
+  with the same month a year back, estimated the same way for October 2025.
+- Long charts are thinned by keeping each stretch's low and high, and the 5- and 10-year views are
+  thinned separately, so spikes and the Low/High stay true.
 - If a source fails, the previous good value is kept and marked "Delayed".
 
 Background research: see the project's evaluation notes.
