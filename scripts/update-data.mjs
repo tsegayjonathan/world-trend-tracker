@@ -279,7 +279,7 @@ function tag(item, name) {
 function summaryOf(item) {
   const raw = item.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1] || "";
   const html = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-  return decode(html.match(/<p>([\s\S]*?)<\/p>/i)?.[1] ?? html);
+  return decode(html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || "") || decode(html);
 }
 
 async function news(previous) {

@@ -222,4 +222,9 @@ test("singular and plural headlines of one story match; generic shared words don
     "Buildings set ablaze and more than 1,200 arrested as police clash with protesters across France",
     "Protesters allege police brutality as violent clashes rage on in Albania",
   ));
+  // Few shared words relative to length, but one of them is the place: same story.
+  assert.ok(same(
+    "Buildings set ablaze and more than 1,200 arrested as police clash with protesters across France",
+    "Scuffles and fires break out as protesters rally across France, joining students",
+  ));
 });

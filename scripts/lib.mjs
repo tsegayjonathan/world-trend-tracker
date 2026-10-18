@@ -356,23 +356,28 @@ export function chooseOdds(rows, topics, max) {
 
 const STOP = new Set("a an the and or of to in on at for from with by as is are was were be been it its this that after over into says say said amid new how why what who will can could would may more than about up out not no".split(" "));
 
+const words = (title) => title.replace(/[‘’']/g, "").replace(/[^A-Za-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+// Plural to singular so "strike" and "strikes", "price" and "prices" match ("across" stays).
+const stem = (w) => w.toLowerCase().replace(/ies$/, "y").replace(/(?<!s)s$/, "");
+
 export function keywords(title) {
-  return new Set(
-    title.toLowerCase().replace(/[‘’']/g, "").replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
-      .filter(w => w.length > 2 && !STOP.has(w))
-      // Plural to singular so "strike" and "strikes", "price" and "prices" match ("across" stays).
-      .map(w => w.replace(/ies$/, "y").replace(/(?<!s)s$/, ""))
-  );
+  return new Set(words(title).map(w => w.toLowerCase()).filter(w => w.length > 2 && !STOP.has(w)).map(stem));
 }
 
-// Same story? Enough shared words, and a big enough share of all the words: three generic words
-// ("police", "clash", "protesters") alone don't make France and Albania the same story.
+// Capitalised words after the first: usually names and places ("France", "Kolkata", "Zelensky").
+export function names(title) {
+  return new Set(words(title).slice(1).filter(w => /^[A-Z][a-z]/.test(w)).map(stem));
+}
+
+// Same story? Two headlines match when they share enough words relative to their length, or share
+// three words including a name or place. Three generic words alone ("police", "clash",
+// "protesters") don't make France's protests and Albania's the same story.
 export function similar(a, b) {
-  let shared = 0;
-  for (const w of a) if (b.has(w)) shared++;
-  const union = a.size + b.size - shared;
+  let shared = 0, sharedName = false;
+  for (const w of a.kw) if (b.kw.has(w)) { shared++; if (a.names.has(w) && b.names.has(w)) sharedName = true; }
+  const union = a.kw.size + b.kw.size - shared;
   if (!union) return false;
-  return (shared >= 3 && shared / union > 0.2) || (shared >= 2 && shared / union >= 0.34);
+  return (shared >= 3 && (sharedName || shared / union > 0.2)) || (shared >= 2 && shared / union >= 0.34);
 }
 
 const TOPICS = [
@@ -398,7 +403,7 @@ export function topicsFor(title, summary = "") {
 export function clusterNews(items) {
   const clusters = [];
   for (const item of items) {
-    const kw = keywords(item.title);
+    const kw = { kw: keywords(item.title), names: names(item.title) };
     // Compare against each member (not a merged word bag) so one loose match can't snowball.
     const hit = clusters.find(c => !c.sources.has(item.source) && c.kws.some(k => similar(k, kw)));
     if (hit) {
