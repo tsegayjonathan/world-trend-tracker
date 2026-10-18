@@ -124,9 +124,14 @@ async function fredSeries(id) {
     .filter(o => Number.isFinite(o.value));
 }
 
-// Next scheduled release for a series (needs the API key). Cached per release.
+// Release dates are US Eastern calendar dates. Using the UTC date would drop a release at
+// 8pm New York time the evening before it.
+const TODAY_ET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
+// Next scheduled release for a series (needs the API key). Today's release counts until the
+// new number has arrived (releasedToday). Cached per release.
 const releaseCache = new Map();
-async function nextRelease(id) {
+async function nextRelease(id, releasedToday) {
   if (!FRED_KEY || fredKeyProblem) return null;
   try {
     const r = await get(fredUrl("series/release", { series_id: id }));
@@ -134,13 +139,12 @@ async function nextRelease(id) {
     if (!rel) return null;
     if (!releaseCache.has(rel.id)) {
       const d = await get(fredUrl("release/dates", {
-        release_id: rel.id, realtime_start: isoDaysAgo(0), include_release_dates_with_no_data: "true", sort_order: "asc", limit: "5",
+        release_id: rel.id, realtime_start: TODAY_ET, include_release_dates_with_no_data: "true", sort_order: "asc", limit: "5",
       }));
-      const today = isoDaysAgo(0);
-      const next = d.release_dates?.map(x => x.date).find(dt => dt > today) || null;
-      releaseCache.set(rel.id, next ? { date: next, release: rel.name } : null);
+      releaseCache.set(rel.id, (d.release_dates || []).map(x => x.date).filter(dt => dt >= TODAY_ET));
     }
-    return releaseCache.get(rel.id);
+    const date = releaseCache.get(rel.id).find(dt => dt > TODAY_ET || !releasedToday);
+    return date ? { date, release: rel.name } : null;
   } catch (e) {
     errors[`release:${id}`] = String(e.message || e);
     return null;
@@ -224,7 +228,10 @@ async function indicators(previous) {
     try {
       const raw = await fredSeries(meta.id);
       const ind = validate(analyze(meta, raw, meta.transform === "yoy" ? raw : null));
-      ind.next = ind.freq === "daily" ? null : await nextRelease(meta.id);
+      // Remember the day a new reading first appeared, so today's release date is dropped once it's out.
+      const old = previous.find(p => p.id === meta.id);
+      ind.releasedOn = !old || old.date === ind.date ? old?.releasedOn ?? null : TODAY_ET;
+      ind.next = ind.freq === "daily" ? null : await nextRelease(meta.id, ind.releasedOn === TODAY_ET);
       out.push({ ...ind, source: "FRED", link: `https://fred.stlouisfed.org/series/${meta.id}` });
     } catch (e) {
       keepPrevious(meta.id, e);
