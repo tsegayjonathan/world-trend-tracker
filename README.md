@@ -8,14 +8,41 @@ and GitHub Pages hosts the site.
 
 ## What's on the page
 
-- **Numbers** (FRED, CoinGecko): Brent oil, CPI and core inflation, gas, natural gas, world food prices,
-  jobless claims, unemployment, copper, Fed rate, 10-year yield, yield curve, mortgage rate,
-  dollar index, VIX, gold and bitcoin. Each tile shows the latest value, the change since the last
-  reading and vs a year ago, a one-year chart, and what the number tells you.
-- **Since your last visit**: the biggest moves since you last opened the page (stored in your browser).
+- **The world right now**: one plain-English line per theme (prices, jobs, borrowing, markets, energy)
+  with an OK / watch / alert status.
+- **Numbers** (FRED, CoinGecko): Brent oil, CPI and core CPI, core PCE (the Fed's measure), gas, natural gas, world food prices,
+  the Sahm-rule recession signal, jobless claims, unemployment, copper, Fed rate, 10-year yield,
+  yield curve, mortgage rate, dollar index, VIX, gold and bitcoin. Each tile shows a status, the
+  change over the past month and year, a 1/5/10-year chart with reference lines, where the value
+  sits in its 10-year history, when it was released and when the next release is due.
+- **Since your last visit**: the biggest moves and status changes since you last opened the page
+  (stored in your browser).
+- **World news**: BBC, Al Jazeera, The Guardian and NPR. Stories covered by several outlets are
+  grouped as top stories; everything is tagged by topic and searchable.
 - **What the crowd expects**: Polymarket odds on the economy and world events.
-- **What the world is reading**: yesterday's most-read Wikipedia articles.
-- **World news**: BBC, Al Jazeera, The Guardian and NPR headlines, filterable and searchable.
+- **What the world is reading**: the most-read Wikipedia articles.
+
+## How the logic works
+
+The rules live in `scripts/lib.mjs` and are covered by `tests/lib.test.mjs` (run with
+`node --test tests/*.test.mjs`; the hourly job runs them first).
+
+- Known thresholds where they exist: Fed 2% inflation goal (graded on core PCE, the measure the goal
+  is set on; CPI tiles are banded around 2% without claiming the goal), Sahm rule 0.5, yield curve
+  below 0, VIX 20/30, jobless claims 250K.
+- Otherwise each number is compared with its own last 10 years (percentile rank).
+- "Sharp rise/drop" = the latest one-month move is over 2 standard deviations from that number's
+  usual monthly moves, in the bad direction. A big move the good way is labelled "Rising/Falling fast"
+  without a warning.
+- Inflation momentum = last 3 months annualized, next to year-over-year, for the same month.
+  October 2025 CPI was never published (government shutdown); its year-ago base is estimated from
+  September and November 2025, and the tile says so. "vs 1 yr ago" for any monthly number compares
+  with the same month a year back, estimated the same way for October 2025.
+- Long charts are thinned by keeping each stretch's low and high, and the 5- and 10-year views are
+  thinned separately, so spikes and the Low/High stay true.
+- If a source fails, the previous good value is kept and marked "Delayed".
+
+Background research: see the project's evaluation notes.
 
 ## Setup
 
