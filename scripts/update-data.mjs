@@ -4,7 +4,8 @@
 
 import { writeFile, mkdir } from "node:fs/promises";
 
-const FRED_KEY = process.env.FRED_API_KEY || "";
+const FRED_KEY = (process.env.FRED_API_KEY || "").trim();
+let fredKeyProblem = null;
 const UA = "world-trend-tracker (personal dashboard; github.com)";
 
 // direction: which way is "good news" for an ordinary person. "neutral" = no colour.
@@ -69,7 +70,11 @@ const errors = {};
 
 async function get(url, as = "json") {
   const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url.replace(/api_key=[^&]+/, "api_key=***")}`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).slice(0, 300);
+    const detail = body.match(/"error_message"\s*:\s*"([^"]+)"/)?.[1] || "";
+    throw new Error(`HTTP ${res.status} for ${url.replace(/api_key=[^&]+/, "api_key=***")}${detail ? `: ${detail}` : ""}`);
+  }
   return as === "json" ? res.json() : res.text();
 }
 
@@ -77,11 +82,17 @@ function isoDaysAgo(days) {
   return new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
 }
 
+// Uses the official API when a key is set; falls back to the public CSV if the key is missing or rejected.
 async function fredSeries(id) {
   const start = isoDaysAgo(3 * 365);
-  if (FRED_KEY) {
-    const d = await get(`https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${FRED_KEY}&file_type=json&observation_start=${start}`);
-    return d.observations.filter(o => o.value !== ".").map(o => ({ date: o.date, value: Number(o.value) }));
+  if (FRED_KEY && !fredKeyProblem) {
+    try {
+      const d = await get(`https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${FRED_KEY}&file_type=json&observation_start=${start}`);
+      return d.observations.filter(o => o.value !== ".").map(o => ({ date: o.date, value: Number(o.value) }));
+    } catch (e) {
+      if (/api_key/i.test(e.message)) fredKeyProblem = e.message;
+      else throw e;
+    }
   }
   const csv = await get(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${start}`, "text");
   return csv.trim().split("\n").slice(1)
@@ -258,7 +269,8 @@ async function trending() {
 const [ind, nws, odd, trd] = await Promise.all([indicators(), news(), odds(), trending()]);
 const data = {
   updated: new Date().toISOString(),
-  fredMode: FRED_KEY ? "api" : "csv",
+  fredMode: FRED_KEY && !fredKeyProblem ? "api" : "csv",
+  fredKeyProblem,
   indicators: ind,
   news: nws,
   odds: odd,
@@ -269,5 +281,6 @@ const data = {
 await mkdir(new URL("../data/", import.meta.url), { recursive: true });
 await writeFile(new URL("../data/latest.json", import.meta.url), JSON.stringify(data, null, 1));
 console.log(`indicators ${ind.length}/${INDICATORS.length + COINS.length}, news ${nws.length}, odds ${odd.length}, trending ${trd?.articles.length ?? 0}`);
+if (fredKeyProblem) console.log("::warning::FRED rejected the FRED_API_KEY secret, used public CSV instead. " + fredKeyProblem);
 if (Object.keys(errors).length) console.log("errors:", errors);
 if (ind.length === 0) process.exit(1);
