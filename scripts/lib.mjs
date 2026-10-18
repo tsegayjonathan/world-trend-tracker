@@ -376,22 +376,22 @@ export function similar(a, b) {
 }
 
 const TOPICS = [
-  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting)\b/i],
+  ["Conflict", /\b(wars?|military|troops|airstrikes?|missiles?|drones?|attacks?|attacked|ceasefire|army|militants?|rebels?|rebellion|houthis?|siege|coalition forces|(?<!water )bomb\w*|shelling|invasion|hostages?|soldiers?|navy|defen[cs]e|nato|gaza|west bank|ukraine|russia|israel\w*|hamas|hezbollah|sudan|conflict|fighting(?! for\b))\b/i],
   ["Economy", /\b(econom\w*|inflation|interest rates?|the fed|federal reserve|central bank|tariffs?|trade|markets?|stocks?|shares|prices?|jobs|unemployment|gdp|recession|(?<!west )banks?|banking|debt|budget|tax\w*|dollar|currenc\w*|investors?|compan\w*|business\w*|imports?|exports?)\b/i],
-  ["Energy & climate", /\b(climate|energy|oil|gas|opec|tankers?|deforestation|emissions?|heatwaves?|wildfires?|floods?|flooding|storms?|hurricanes?|typhoons?|cyclones?|drought|earthquakes?|solar|nuclear|weather|power cuts?)\b/i],
+  ["Energy & climate", /\b(climate|energy|oil|gas|opec|tankers?|deforestation|emissions?|heatwaves?|wildfires?|bushfires?|floods?|flooding|storms?|hurricanes?|typhoons?|cyclones?|drought|earthquakes?|solar|nuclear|weather|power cuts?)\b/i],
   ["Politics", /\b(elections?|votes?|voters?|president|prime minister|parliament|congress|senate|ministers?|government|courts?|judges?|laws?|protests?|protesters|polic(y|ies)|campaign|party|sanctions?|diplomat\w*|summit|white house)\b/i],
   ["Health", /\b(health|virus|outbreaks?|vaccines?|diseases?|hospitals?|cancer|covid|flu|measles|cholera|mpox|ebola|drugs?|medical|doctors?|patients?)\b/i],
   ["Tech & science", /\b(ai|artificial intelligence|tech|technology|apple|google|microsoft|nvidia|openai|chips?|semiconductors?|space|nasa|rockets?|satellites?|cyber\w*|hack\w*|scien\w*|research\w*|robots?)\b/i],
 ];
 
 // Tags from the headline; the summary is only used when the headline alone gives nothing,
-// because summaries mention side topics that would mislabel the story.
+// because summaries mention side topics that would mislabel the story. In a summary, words like
+// "research", "satellite" or "medical" are usually incidental, so only the broad topics count there.
 export function topicsFor(title, summary = "") {
-  for (const text of [title, summary]) {
-    const t = TOPICS.filter(([, re]) => re.test(text)).map(([name]) => name);
-    if (t.length) return t.slice(0, 2);
-  }
-  return ["World"];
+  const t = TOPICS.filter(([, re]) => re.test(title)).map(([name]) => name);
+  if (t.length) return t.slice(0, 2);
+  const s = TOPICS.filter(([name, re]) => name !== "Tech & science" && name !== "Health" && re.test(summary)).map(([name]) => name);
+  return s.length ? s.slice(0, 1) : ["World"];
 }
 
 // Groups the same story across outlets. A story several outlets carry is usually a bigger one.

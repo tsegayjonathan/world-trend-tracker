@@ -191,6 +191,10 @@ test("topics come from the headline, not side mentions in the summary", () => {
   assert.deepEqual(topicsFor("Missile strike hits port", "Oil markets rose"), ["Conflict"]);
   assert.deepEqual(topicsFor("Mystery in the village", "Police say the election..."), ["Politics"]);
   assert.deepEqual(topicsFor("Kim's luxury boat spotted"), ["World"]);
+  assert.deepEqual(topicsFor("Rare pink diamond goes on display", "It was found hidden in an apple after a theft"), ["World"]);
+  assert.deepEqual(topicsFor("South Africans seek justice", "Families are still fighting for justice"), ["World"]);
+  assert.deepEqual(topicsFor("Heavy fighting in eastern Congo as rebels advance"), ["Conflict"]);
+  assert.deepEqual(topicsFor("Most homes lost in black summer bushfires were near bush"), ["Energy & climate"]);
 });
 
 test("the same story from two outlets is grouped; different stories are not", () => {
