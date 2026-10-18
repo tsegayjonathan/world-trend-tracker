@@ -303,7 +303,7 @@ async function news(previous) {
         fromFeed.push({ title, link, source: feed.source, summary, time: Number.isFinite(time) ? new Date(time).toISOString() : null });
       }
       // Feeds aren't always in time order (The Guardian's isn't), so take each feed's newest items.
-      all.push(...fromFeed.sort((a, b) => (b.time || "").localeCompare(a.time || "")).slice(0, 25));
+      all.push(...fromFeed.sort((a, b) => (b.time || "").localeCompare(a.time || "")).slice(0, 30));
     } catch (e) {
       errors[`feed:${feed.url}`] = String(e.message || e);
     }
