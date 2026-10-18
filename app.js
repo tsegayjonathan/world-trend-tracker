@@ -40,8 +40,8 @@ function fmtChange(ind, c) {
   return ind.inPoints ? `${a.toFixed(ind.dp >= 2 ? 2 : 1)} pts` : `${a.toFixed(a < 10 ? 1 : 0)}%`;
 }
 
-// "Flat" means it would round to zero at the precision shown, so no coloured "▲ 0.0".
-const isFlat = (ind, c) => Math.abs(c) < (ind.inPoints && ind.dp >= 2 ? 0.005 : 0.05);
+// "Flat" means it rounds to zero at the precision shown, so no coloured "▲ 0.0".
+const isFlat = (ind, c) => !/[1-9]/.test(fmtChange(ind, c));
 
 function tone(ind, c) {
   if (!c || ind.direction === "neutral") return "";
